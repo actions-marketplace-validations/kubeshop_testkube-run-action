@@ -4,8 +4,7 @@ import {parse as parseEnv} from 'dotenv';
 import kleur from 'kleur';
 import * as write from './write';
 import {Connection, resolveConfig} from './connection';
-import {ActionInput, ExecutionStatus} from './types';
-import {runningContext} from './config';
+import {ActionInput, ExecutionStatus, TestDetails} from './types';
 import {TestEntity, TestSuiteEntity} from './entities';
 import {formatVariables} from './utils';
 
@@ -24,6 +23,7 @@ const input: ActionInput = {
 
   url: getInput('url'),
   ws: getInput('ws'),
+  dashboardUrl: getInput('dashboardUrl'),
 
   organization: getInput('organization'),
   environment: getInput('environment'),
@@ -50,15 +50,18 @@ if (!input.organization && !input.url) {
 
 // Constants
 
-const client = new Connection(await resolveConfig(input));
+const config = await resolveConfig(input);
+const client = new Connection(config);
 const entity = input.test ? new TestEntity(client, input.test) : new TestSuiteEntity(client, input.testSuite!);
 
 // Get test details
 
 write.header('Obtaining details');
 const details = await entity.get();
+const sourceId = (details as TestDetails).source;
+const source = sourceId ? await client.getSourceDetails(sourceId) : null;
 
-if (!['git', 'git-dir', 'git-file'].includes(details.content?.type!) && input.ref) {
+if (input.ref && !['git', 'git-dir', 'git-file'].includes(details.content?.type || source?.type!)) {
   write.critical('Git revision provided, but the test is not sourced from Git.');
 }
 
@@ -72,10 +75,20 @@ const execution = await entity.schedule({
   namespace: input.namespace || undefined,
   variables: Object.keys(variables).length > 0 ? {...details.executionRequest?.variables, ...variables} : undefined,
   contentRequest: input.ref ? {repository: {commit: input.ref}} : undefined,
-  runningContext,
+  runningContext: {
+    type: 'githubaction',
+    context: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+  },
 });
 
 write.log(`Execution scheduled: ${execution.name} (${execution.id})`);
+if (config.dashboard) {
+  if (input.test) {
+    write.log(`Dashboard URL: ${config.dashboard}/tests/executions/${input.test}/execution/${execution.id}`);
+  } else {
+    write.log(`Dashboard URL: ${config.dashboard}/test-suites/executions/${input.testSuite}/execution/${execution.id}`);
+  }
+}
 
 // Stream logs
 write.header('Attaching to logs');

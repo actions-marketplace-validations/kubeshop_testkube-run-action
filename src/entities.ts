@@ -48,25 +48,36 @@ export class TestEntity implements Entity {
       let timeoutRef: NodeJS.Timeout;
       let done = false;
 
+      const getIsFinished = async () => {
+        const status = await this.client.getTestExecutionDetails(id, true)
+          .then(x => x.executionResult.status)
+          .catch(() => ExecutionStatus.queued);
+        return [ExecutionStatus.passed, ExecutionStatus.failed, ExecutionStatus.cancelled, ExecutionStatus.aborted, ExecutionStatus.timeout].includes(status);
+      };
+
+      const finish = () => {
+        done = true;
+        clearTimeout(timeoutRef);
+        resolve();
+        conn.close();
+      };
+
       const buildWebSocket = () => {
         const ws = this.client.openLogsSocket(id);
-        let failed = false;
 
         ws.on('error', () => {
           // Back-end may return falsely 400, so ignore errors and reconnect
-          failed = true;
-          if (!done) {
-            conn = buildWebSocket();
-            write.log(kleur.italic('Reconnecting...'));
-          }
           ws.close();
         });
 
-        ws.on('close', () => {
-          if (!failed) {
-            done = true;
-            clearTimeout(timeoutRef);
-            resolve();
+        ws.on('close', async () => {
+          if (done || (await getIsFinished())) {
+            finish();
+          } else {
+            setTimeout(() => {
+              conn = buildWebSocket();
+              write.log(kleur.italic('Connection lost, reconnecting...'));
+            }, 5000);
           }
         });
 
@@ -76,20 +87,16 @@ export class TestEntity implements Entity {
           }
           try {
             const dataToJSON = JSON.parse(logData as any);
-            const potentialOutput = dataToJSON?.result?.output || dataToJSON?.output;
+            const potentialOutput = dataToJSON?.result?.output || dataToJSON?.output || dataToJSON?.log_message;
 
             if (potentialOutput) {
               write.log(potentialOutput);
               if (dataToJSON.status === ExecutionStatus.failed) {
                 write.log(`Test run failed: ${dataToJSON.errorMessage || 'failure'}`);
-                resolve();
-                ws.close();
-                clearTimeout(timeoutRef);
+                finish();
               } else if (dataToJSON.status === ExecutionStatus.passed) {
                 write.log('Test run succeed\n');
-                resolve();
-                ws.close();
-                clearTimeout(timeoutRef);
+                finish();
               }
               return;
             }
@@ -110,12 +117,8 @@ export class TestEntity implements Entity {
 
       // Poll results as well, because there are problems with WS
       const tick = async () => {
-        const {executionResult: {status}} = await this.client.getTestExecutionDetails(id, true)
-            .catch(() => ({executionResult: {status: ExecutionStatus.queued}}));
-        if ([ExecutionStatus.passed, ExecutionStatus.failed, ExecutionStatus.cancelled, ExecutionStatus.aborted, ExecutionStatus.timeout].includes(status)) {
-          done = true;
-          resolve();
-          conn.close();
+        if (await getIsFinished()) {
+          finish();
           return;
         }
         timeoutRef = setTimeout(tick, 2000);
@@ -142,7 +145,8 @@ export class TestSuiteEntity implements Entity {
   }
 
   public getResult(data: TestSuiteExecutionDetails): ExecutionResult {
-    const errorMessage = data.stepResults
+    const executions = (data.executeStepResults || []).map(x => x.execute).flat();
+    const errorMessage = executions
       .map(x => x.execution.executionResult)
       .filter((x) => x.status === ExecutionStatus.failed && x.errorMessage)
       .map((x) => x.errorMessage)
@@ -166,7 +170,7 @@ export class TestSuiteEntity implements Entity {
     while (true) {
       await timeout(1000);
 
-      const {status, stepResults} = await this.client.getTestSuiteExecutionDetails(id);
+      const {status, executeStepResults = []} = await this.client.getTestSuiteExecutionDetails(id);
       const statusColors: Record<keyof typeof movements, (txt: string) => string> = {
         [ExecutionStatus.passed]: kleur.green,
         [ExecutionStatus.failed]: kleur.red,
@@ -176,9 +180,11 @@ export class TestSuiteEntity implements Entity {
         [ExecutionStatus.timeout]: kleur.red,
       };
 
-      for (let index = 0; index < stepResults.length; index++) {
-        const {step, execution} = stepResults[index];
-        const name = step.delay ? `🕑 ${step.delay.duration}ms` : step.execute?.name;
+      const executions = executeStepResults.map(x => x.execute).flat();
+      for (let index = 0; index < executions.length; index++) {
+        const {step, execution} = executions[index];
+        const delay = /^(0|[1-9][0-9]*)$/.test(`${step.delay || ''}`) ? `${step.delay}ms` : step.delay;
+        const name = step.test || `🕑 ${delay}`;
         const {status} = execution.executionResult;
         if (status === ExecutionStatus.queued || !status) {
           continue;

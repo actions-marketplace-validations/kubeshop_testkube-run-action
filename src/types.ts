@@ -12,6 +12,7 @@ export interface ActionInput {
 
   url?: string;
   ws?: string;
+  dashboardUrl?: string;
 
   organization?: string;
   environment?: string;
@@ -21,6 +22,7 @@ export interface ActionInput {
 export interface ConnectionConfig {
   url: string;
   ws: string;
+  dashboard?: string;
   token?: string;
   cloud: boolean;
 }
@@ -46,6 +48,11 @@ export interface Variable {
   };
 }
 
+export interface TestSource {
+  type: string;
+  name: string;
+}
+
 export interface TestDetails {
   executionRequest?: {
     negativeTest?: boolean;
@@ -54,9 +61,10 @@ export interface TestDetails {
   content?: {
     type: string;
   };
+  source?: string;
 }
 
-export interface TestSuiteDetails {
+export interface TestSuiteDetailsV2 {
   content?: undefined;
   executionRequest?: {
     negativeTest?: undefined;
@@ -67,6 +75,18 @@ export interface TestSuiteDetails {
     execute: {
       name: string;
     };
+  }[];
+}
+
+export interface TestSuiteDetails {
+  content?: undefined;
+  executionRequest?: {
+    negativeTest?: undefined;
+    variables?: Record<string, Variable>;
+  };
+  steps: {
+    stopOnFailure: boolean;
+    execute: TestSuiteStep[];
   }[];
 }
 
@@ -120,7 +140,19 @@ export interface TestSuiteExecutionData {
   executionLabels?: Record<string, string>;
 }
 
-export interface TestSuiteExecutionDetails {
+interface TestSuiteStepExecution {
+  startTime: string;
+  endTime: string;
+  executionResult: ExecutionResult;
+}
+
+export interface TestSuiteStep {
+  delay?: string;
+  test?: string;
+  namespace?: string;
+}
+
+export interface TestSuiteExecutionDetailsV2 {
   id: string;
   name: string;
   status: ExecutionStatus;
@@ -134,10 +166,22 @@ export interface TestSuiteExecutionDetails {
         name: string;
       };
     };
-    execution: {
-      startTime: string;
-      endTime: string;
-      executionResult: ExecutionResult;
+    execution: TestSuiteStepExecution;
+  }[];
+}
+
+export interface TestSuiteExecutionDetails {
+  id: string;
+  name: string;
+  status: ExecutionStatus;
+  executeStepResults: {
+    step: {
+      stopOnFailure: boolean;
+      execute: TestSuiteStep[];
     };
+    execute: {
+      execution: TestSuiteStepExecution;
+      step: TestSuiteStep;
+    }[];
   }[];
 }

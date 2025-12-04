@@ -11385,39 +11385,7 @@ function socketOnError() {
 
 /***/ }),
 
-/***/ 6373:
-/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
-
-"use strict";
-/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
-/* harmony export */   "AD": () => (/* binding */ instanceAliases),
-/* harmony export */   "Cf": () => (/* binding */ knownSuffixes),
-/* harmony export */   "Di": () => (/* binding */ runningContext),
-/* harmony export */   "Sn": () => (/* binding */ knownInstances),
-/* harmony export */   "Wt": () => (/* binding */ defaultInstance)
-/* harmony export */ });
-const defaultInstance = 'cloud.testkube.io';
-const instanceAliases = {
-    'api.testkube.io': 'cloud.testkube.io',
-    'api.testkube.xyz': 'cloud.testkube.xyz',
-};
-const knownInstances = {
-    'cloud.testkube.io': {
-        api: 'https://api.testkube.io',
-        ws: 'wss://websockets.testkube.io',
-    },
-    'cloud.testkube.xyz': {
-        api: 'https://api.testkube.xyz',
-        ws: 'wss://websockets.testkube.xyz',
-    },
-};
-const knownSuffixes = ['', '/v1', '/results/v1'];
-const runningContext = { type: 'testtrigger', context: 'GitHub Action' };
-
-
-/***/ }),
-
-/***/ 1134:
+/***/ 6957:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 "use strict";
@@ -17285,8 +17253,37 @@ var websocket_server = __nccwpck_require__(8887);
 var write = __nccwpck_require__(1262);
 // EXTERNAL MODULE: ./src/utils.ts
 var utils = __nccwpck_require__(1314);
-// EXTERNAL MODULE: ./src/config.ts
-var src_config = __nccwpck_require__(6373);
+;// CONCATENATED MODULE: ./src/config.ts
+const defaultInstance = 'app.testkube.io';
+const instanceAliases = {
+    'api.testkube.io': 'app.testkube.io',
+    'api.testkube.xyz': 'app.testkube.xyz',
+    'api.testkube.dev': 'app.testkube.dev',
+    // Backwards compatibility
+    'cloud.testkube.io': 'app.testkube.io',
+    'cloud.testkube.xyz': 'app.testkube.xyz',
+    'cloud.testkube.dev': 'app.testkube.dev',
+};
+const knownInstances = {
+    'app.testkube.io': {
+        api: 'https://api.testkube.io',
+        ws: 'wss://websockets.testkube.io',
+        dashboard: 'https://app.testkube.io',
+    },
+    'app.testkube.xyz': {
+        api: 'https://api.testkube.xyz',
+        ws: 'wss://websockets.testkube.xyz',
+        dashboard: 'https://app.testkube.xyz',
+    },
+    'app.testkube.dev': {
+        api: 'https://api.testkube.dev',
+        ws: 'wss://websockets.testkube.dev',
+        dashboard: 'https://app.testkube.dev',
+    },
+};
+const knownSuffixes = ['', '/v1', '/results/v1'];
+const runningContext = { type: 'github-run-action', context: 'github-run-action' };
+
 ;// CONCATENATED MODULE: ./src/connection.ts
 
 
@@ -17295,24 +17292,52 @@ var src_config = __nccwpck_require__(6373);
 
 
 
+function mapExecute(execute) {
+    if (!execute) {
+        return [];
+    }
+    return []
+        .concat(execute)
+        .map(item => 'name' in item ? { test: item.name } : 'duration' in item ? { delay: item.duration } : item);
+}
+function isTestSuiteExecutionV2(execution) {
+    return execution && 'stepResults' in execution;
+}
+function isTestSuiteV2(suite) {
+    return !Array.isArray(suite?.steps?.[0]?.execute || []);
+}
 async function resolveConfig(config) {
     // Sanitize URLs
-    const sanitizedApiUrl = (0,utils/* sanitizeUrl */.Nm)(config.url || src_config/* defaultInstance */.Wt, 'http');
+    const sanitizedApiUrl = (0,utils/* sanitizeUrl */.Nm)(config.url || defaultInstance, 'http');
     const sanitizedWsUrl = (0,utils/* sanitizeUrl */.Nm)(config.ws || sanitizedApiUrl, 'ws');
+    const sanitizedDashboardUrl = config.dashboardUrl ? (0,utils/* sanitizeUrl */.Nm)(config.dashboardUrl, 'http') : undefined;
     // Auto-resolve known hosts
     const { host } = new external_node_url_namespaceObject.URL(sanitizedApiUrl);
-    const detected = src_config/* knownInstances */.Sn[src_config/* instanceAliases */.AD[host] || host];
+    const detected = knownInstances[instanceAliases[host] || host];
     const cloud = Boolean(detected || config.organization || config.environment);
     let baseUrl = detected?.api || sanitizedApiUrl;
     let baseWsUrl = detected?.ws || sanitizedWsUrl;
+    let baseDashboardUrl = detected?.dashboard || sanitizedDashboardUrl;
+    // Try to detect the dashboard's URL based on the API URL, using common patterns
+    if (!baseDashboardUrl) {
+        if (baseUrl.endsWith('/results/v1')) {
+            baseDashboardUrl = baseUrl.replace(/\/results\/v1$/, '');
+        }
+        else if (/^https?:\/\/api\.[^/]+$/.test(baseUrl)) {
+            baseDashboardUrl = baseUrl.replace('//api.', '//app.');
+        }
+    }
     if (cloud) {
         baseUrl = `${baseUrl}/organizations/${config.organization}/environments/${config.environment}/agent`;
         baseWsUrl = `${baseWsUrl}/organizations/${config.organization}/environments/${config.environment}/agent`;
+        if (baseDashboardUrl) {
+            baseDashboardUrl = `${baseDashboardUrl}/organization/${config.organization}/environment/${config.environment}/dashboard`;
+        }
     }
     else {
         let foundSuffix = false;
         let lastErr = null;
-        for (const suffix of src_config/* knownSuffixes */.Cf) {
+        for (const suffix of knownSuffixes) {
             try {
                 const res = await got_dist_source(`${baseUrl}${suffix}/info`);
                 // Ensure it's a valid response
@@ -17342,6 +17367,7 @@ async function resolveConfig(config) {
     return {
         url: baseUrl,
         ws: baseWsUrl,
+        dashboard: baseDashboardUrl,
         token: config.token,
         cloud,
     };
@@ -17377,8 +17403,19 @@ class Connection {
     getTestDetails(testId, allowFailure) {
         return this.get(`/tests/${testId}`, allowFailure);
     }
-    getTestSuiteDetails(testSuiteId, allowFailure) {
-        return this.get(`/test-suites/${testSuiteId}`, allowFailure);
+    async getTestSuiteDetails(testSuiteId, allowFailure) {
+        const suite = await this.get(`/test-suites/${testSuiteId}`, allowFailure);
+        // Convert V2 to V3
+        if (isTestSuiteV2(suite)) {
+            return {
+                ...suite,
+                steps: suite.steps?.map(step => ({
+                    stopOnFailure: step.stopTestOnFailure,
+                    execute: mapExecute(step.execute || step.delay),
+                })),
+            };
+        }
+        return suite;
     }
     scheduleTestExecution(testId, data, allowFailure) {
         return this.post(`/tests/${testId}/executions`, data, allowFailure);
@@ -17389,8 +17426,23 @@ class Connection {
     getTestExecutionDetails(executionId, allowFailure) {
         return this.get(`/executions/${executionId}`, allowFailure);
     }
-    getTestSuiteExecutionDetails(executionId, allowFailure) {
-        return this.get(`/test-suite-executions/${executionId}`, allowFailure);
+    async getTestSuiteExecutionDetails(executionId, allowFailure) {
+        const execution = await this.get(`/test-suite-executions/${executionId}`, allowFailure);
+        // Convert V2 to V3
+        if (isTestSuiteExecutionV2(execution)) {
+            const { stepResults, ...rest } = execution;
+            return {
+                ...rest,
+                executeStepResults: stepResults.map((result) => ({
+                    execute: [{ execution: result.execution, step: mapExecute(result.step.execute)?.[0] }],
+                    step: { ...result.step, execute: mapExecute(result.step.execute) },
+                })),
+            };
+        }
+        return execution;
+    }
+    getSourceDetails(id, allowFailure) {
+        return this.get(`/test-sources/${id}`, allowFailure);
     }
     openLogsSocket(executionId) {
         return this.ws(`/executions/${executionId}/logs/stream`);
@@ -17441,23 +17493,31 @@ class TestEntity {
             let conn;
             let timeoutRef;
             let done = false;
+            const getIsFinished = async () => {
+                const status = await this.client.getTestExecutionDetails(id, true)
+                    .then(x => x.executionResult.status)
+                    .catch(() => _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.queued */ .F.queued);
+                return [_types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.passed */ .F.passed, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.failed */ .F.failed, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.cancelled */ .F.cancelled, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.aborted */ .F.aborted, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.timeout */ .F.timeout].includes(status);
+            };
+            const finish = () => {
+                done = true;
+                clearTimeout(timeoutRef);
+                resolve();
+                conn.close();
+            };
             const buildWebSocket = () => {
                 const ws = this.client.openLogsSocket(id);
-                let failed = false;
                 ws.on('error', () => {
                     // Back-end may return falsely 400, so ignore errors and reconnect
-                    failed = true;
-                    if (!done) {
-                        conn = buildWebSocket();
-                        _write__WEBPACK_IMPORTED_MODULE_3__/* .log */ .cM(kleur__WEBPACK_IMPORTED_MODULE_1__/* ["default"].italic */ .Z.italic('Reconnecting...'));
-                    }
                     ws.close();
                 });
-                ws.on('close', () => {
-                    if (!failed) {
-                        done = true;
-                        clearTimeout(timeoutRef);
-                        resolve();
+                ws.on('close', async () => {
+                    if (done || (await getIsFinished())) {
+                        finish();
+                    }
+                    else {
+                        conn = buildWebSocket();
+                        _write__WEBPACK_IMPORTED_MODULE_3__/* .log */ .cM(kleur__WEBPACK_IMPORTED_MODULE_1__/* ["default"].italic */ .Z.italic('Connection lost, reconnecting...'));
                     }
                 });
                 ws.on('message', (logData) => {
@@ -17466,20 +17526,16 @@ class TestEntity {
                     }
                     try {
                         const dataToJSON = JSON.parse(logData);
-                        const potentialOutput = dataToJSON?.result?.output || dataToJSON?.output;
+                        const potentialOutput = dataToJSON?.result?.output || dataToJSON?.output || dataToJSON?.log_message;
                         if (potentialOutput) {
                             _write__WEBPACK_IMPORTED_MODULE_3__/* .log */ .cM(potentialOutput);
                             if (dataToJSON.status === _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.failed */ .F.failed) {
                                 _write__WEBPACK_IMPORTED_MODULE_3__/* .log */ .cM(`Test run failed: ${dataToJSON.errorMessage || 'failure'}`);
-                                resolve();
-                                ws.close();
-                                clearTimeout(timeoutRef);
+                                finish();
                             }
                             else if (dataToJSON.status === _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.passed */ .F.passed) {
                                 _write__WEBPACK_IMPORTED_MODULE_3__/* .log */ .cM('Test run succeed\n');
-                                resolve();
-                                ws.close();
-                                clearTimeout(timeoutRef);
+                                finish();
                             }
                             return;
                         }
@@ -17499,12 +17555,8 @@ class TestEntity {
             conn = buildWebSocket();
             // Poll results as well, because there are problems with WS
             const tick = async () => {
-                const { executionResult: { status } } = await this.client.getTestExecutionDetails(id, true)
-                    .catch(() => ({ executionResult: { status: _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.queued */ .F.queued } }));
-                if ([_types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.passed */ .F.passed, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.failed */ .F.failed, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.cancelled */ .F.cancelled, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.aborted */ .F.aborted, _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.timeout */ .F.timeout].includes(status)) {
-                    done = true;
-                    resolve();
-                    conn.close();
+                if (await getIsFinished()) {
+                    finish();
                     return;
                 }
                 timeoutRef = setTimeout(tick, 2000);
@@ -17530,7 +17582,8 @@ class TestSuiteEntity {
         return this.client.scheduleTestSuiteExecution(this.id, data);
     }
     getResult(data) {
-        const errorMessage = data.stepResults
+        const executions = (data.executeStepResults || []).map(x => x.execute).flat();
+        const errorMessage = executions
             .map(x => x.execution.executionResult)
             .filter((x) => x.status === _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.failed */ .F.failed && x.errorMessage)
             .map((x) => x.errorMessage)
@@ -17551,7 +17604,7 @@ class TestSuiteEntity {
         };
         while (true) {
             await (0,node_timers_promises__WEBPACK_IMPORTED_MODULE_0__.setTimeout)(1000);
-            const { status, stepResults } = await this.client.getTestSuiteExecutionDetails(id);
+            const { status, executeStepResults = [] } = await this.client.getTestSuiteExecutionDetails(id);
             const statusColors = {
                 [_types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.passed */ .F.passed]: kleur__WEBPACK_IMPORTED_MODULE_1__/* ["default"].green */ .Z.green,
                 [_types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.failed */ .F.failed]: kleur__WEBPACK_IMPORTED_MODULE_1__/* ["default"].red */ .Z.red,
@@ -17560,9 +17613,11 @@ class TestSuiteEntity {
                 [_types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.aborted */ .F.aborted]: kleur__WEBPACK_IMPORTED_MODULE_1__/* ["default"].red */ .Z.red,
                 [_types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.timeout */ .F.timeout]: kleur__WEBPACK_IMPORTED_MODULE_1__/* ["default"].red */ .Z.red,
             };
-            for (let index = 0; index < stepResults.length; index++) {
-                const { step, execution } = stepResults[index];
-                const name = step.delay ? `🕑 ${step.delay.duration}ms` : step.execute?.name;
+            const executions = executeStepResults.map(x => x.execute).flat();
+            for (let index = 0; index < executions.length; index++) {
+                const { step, execution } = executions[index];
+                const delay = /^(0|[1-9][0-9]*)$/.test(`${step.delay || ''}`) ? `${step.delay}ms` : step.delay;
+                const name = step.test || `🕑 ${delay}`;
                 const { status } = execution.executionResult;
                 if (status === _types__WEBPACK_IMPORTED_MODULE_2__/* .ExecutionStatus.queued */ .F.queued || !status) {
                     continue;
@@ -17596,12 +17651,10 @@ __nccwpck_require__.r(__webpack_exports__);
 /* harmony import */ var dotenv__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(dotenv__WEBPACK_IMPORTED_MODULE_2__);
 /* harmony import */ var kleur__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(5386);
 /* harmony import */ var _write__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(1262);
-/* harmony import */ var _connection__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(1134);
+/* harmony import */ var _connection__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(6957);
 /* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(5077);
-/* harmony import */ var _config__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(6373);
-/* harmony import */ var _entities__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(4065);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(1314);
-
+/* harmony import */ var _entities__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(4065);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(1314);
 
 
 
@@ -17623,6 +17676,7 @@ const input = {
     executionName: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('executionName'),
     url: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('url'),
     ws: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('ws'),
+    dashboardUrl: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('dashboardUrl'),
     organization: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('organization'),
     environment: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('environment'),
     token: (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('token'),
@@ -17644,26 +17698,40 @@ if (!input.organization && !input.url) {
     _write__WEBPACK_IMPORTED_MODULE_4__/* .critical */ .kq('You need to either pass URL of Testkube instance, or credentials for the Cloud');
 }
 // Constants
-const client = new _connection__WEBPACK_IMPORTED_MODULE_5__/* .Connection */ .e(await (0,_connection__WEBPACK_IMPORTED_MODULE_5__/* .resolveConfig */ .n)(input));
-const entity = input.test ? new _entities__WEBPACK_IMPORTED_MODULE_8__/* .TestEntity */ .g(client, input.test) : new _entities__WEBPACK_IMPORTED_MODULE_8__/* .TestSuiteEntity */ .t(client, input.testSuite);
+const config = await (0,_connection__WEBPACK_IMPORTED_MODULE_5__/* .resolveConfig */ .n)(input);
+const client = new _connection__WEBPACK_IMPORTED_MODULE_5__/* .Connection */ .e(config);
+const entity = input.test ? new _entities__WEBPACK_IMPORTED_MODULE_7__/* .TestEntity */ .g(client, input.test) : new _entities__WEBPACK_IMPORTED_MODULE_7__/* .TestSuiteEntity */ .t(client, input.testSuite);
 // Get test details
 _write__WEBPACK_IMPORTED_MODULE_4__/* .header */ .Fs('Obtaining details');
 const details = await entity.get();
-if (!['git', 'git-dir', 'git-file'].includes(details.content?.type) && input.ref) {
+const sourceId = details.source;
+const source = sourceId ? await client.getSourceDetails(sourceId) : null;
+if (input.ref && !['git', 'git-dir', 'git-file'].includes(details.content?.type || source?.type)) {
     _write__WEBPACK_IMPORTED_MODULE_4__/* .critical */ .kq('Git revision provided, but the test is not sourced from Git.');
 }
 // Run test
 _write__WEBPACK_IMPORTED_MODULE_4__/* .header */ .Fs('Scheduling test execution');
-const variables = (0,_utils__WEBPACK_IMPORTED_MODULE_9__/* .formatVariables */ .t3)(input.variables, input.secretVariables);
+const variables = (0,_utils__WEBPACK_IMPORTED_MODULE_8__/* .formatVariables */ .t3)(input.variables, input.secretVariables);
 const execution = await entity.schedule({
     name: input.executionName || undefined,
     preRunScript: input.preRunScript || undefined,
     namespace: input.namespace || undefined,
     variables: Object.keys(variables).length > 0 ? { ...details.executionRequest?.variables, ...variables } : undefined,
     contentRequest: input.ref ? { repository: { commit: input.ref } } : undefined,
-    runningContext: _config__WEBPACK_IMPORTED_MODULE_7__/* .runningContext */ .Di,
+    runningContext: {
+        type: 'githubaction',
+        context: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+    },
 });
 _write__WEBPACK_IMPORTED_MODULE_4__/* .log */ .cM(`Execution scheduled: ${execution.name} (${execution.id})`);
+if (config.dashboard) {
+    if (input.test) {
+        _write__WEBPACK_IMPORTED_MODULE_4__/* .log */ .cM(`Dashboard URL: ${config.dashboard}/tests/executions/${input.test}/execution/${execution.id}`);
+    }
+    else {
+        _write__WEBPACK_IMPORTED_MODULE_4__/* .log */ .cM(`Dashboard URL: ${config.dashboard}/test-suites/executions/${input.testSuite}/execution/${execution.id}`);
+    }
+}
 // Stream logs
 _write__WEBPACK_IMPORTED_MODULE_4__/* .header */ .Fs('Attaching to logs');
 await entity.watchExecution(execution.id);
